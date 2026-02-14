@@ -24,9 +24,20 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(googletest)
 
+# IXWebSocket (for WebSocket tools)
+FetchContent_Declare(
+    ixwebsocket
+    GIT_REPOSITORY https://github.com/machinezone/IXWebSocket.git
+    GIT_TAG v11.4.5
+)
+set(USE_TLS ON CACHE BOOL "" FORCE)
+set(IXWEBSOCKET_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(ixwebsocket)
+
 # Domain library
 add_library(domain
     src/domain/value_objects/Price.cpp
+    src/domain/value_objects/Quantity.cpp
 )
 
 target_include_directories(domain PUBLIC
@@ -43,6 +54,10 @@ target_include_directories(market_data_engine PRIVATE
 )
 
 target_link_libraries(market_data_engine PRIVATE domain)
+
+# Tools
+add_executable(ws_listener tools/ws_listener.cpp)
+target_link_libraries(ws_listener PRIVATE ixwebsocket)
 
 # Enable testing
 enable_testing()
