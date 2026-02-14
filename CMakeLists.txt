@@ -40,6 +40,7 @@ add_library(domain
     src/domain/value_objects/Quantity.cpp
     src/domain/value_objects/Timestamp.cpp
     src/domain/value_objects/MarketAsset.cpp
+    src/domain/value_objects/PriceLevel.cpp
 )
 
 target_include_directories(domain PUBLIC
