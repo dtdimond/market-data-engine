@@ -38,6 +38,7 @@ FetchContent_MakeAvailable(ixwebsocket)
 add_library(domain
     src/domain/value_objects/Price.cpp
     src/domain/value_objects/Quantity.cpp
+    src/domain/value_objects/Timestamp.cpp
 )
 
 target_include_directories(domain PUBLIC
