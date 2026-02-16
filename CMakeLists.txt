@@ -34,6 +34,14 @@ set(USE_TLS ON CACHE BOOL "" FORCE)
 set(IXWEBSOCKET_INSTALL OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(ixwebsocket)
 
+# JSON library
+FetchContent_Declare(
+    json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.3
+)
+FetchContent_MakeAvailable(json)
+
 # Domain library
 add_library(domain
     src/domain/value_objects/Price.cpp
@@ -45,6 +53,17 @@ add_library(domain
 )
 
 target_include_directories(domain PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+# Infrastructure library
+add_library(infrastructure
+    src/infrastructure/PolymarketMessageParser.cpp
+)
+
+target_link_libraries(infrastructure PUBLIC domain PRIVATE nlohmann_json::nlohmann_json)
+
+target_include_directories(infrastructure PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
