@@ -9,6 +9,7 @@ add_executable(market_data_engine_tests
     domain/events/BookDeltaTest.cpp
     domain/events/TradeEventTest.cpp
     domain/events/TickSizeChangeTest.cpp
+    domain/aggregates/OrderBookTest.cpp
 )
 
 target_link_libraries(market_data_engine_tests PRIVATE
