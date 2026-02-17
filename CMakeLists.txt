@@ -68,6 +68,17 @@ target_include_directories(infrastructure PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
+# Services library
+add_library(services
+    src/services/OrderBookService.cpp
+)
+
+target_link_libraries(services PUBLIC domain)
+
+target_include_directories(services PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
 # Main executable
 add_executable(market_data_engine
     src/main.cpp

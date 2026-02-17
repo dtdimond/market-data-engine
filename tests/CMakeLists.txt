@@ -11,11 +11,13 @@ add_executable(market_data_engine_tests
     domain/events/TickSizeChangeTest.cpp
     domain/aggregates/OrderBookTest.cpp
     infrastructure/PolymarketMessageParserTest.cpp
+    services/OrderBookServiceTest.cpp
 )
 
 target_link_libraries(market_data_engine_tests PRIVATE
     domain
     infrastructure
+    services
     GTest::gtest_main
 )
 
