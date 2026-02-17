@@ -62,7 +62,7 @@ add_library(infrastructure
     src/infrastructure/PolymarketClient.cpp
 )
 
-target_link_libraries(infrastructure PUBLIC domain PRIVATE nlohmann_json::nlohmann_json ixwebsocket)
+target_link_libraries(infrastructure PUBLIC domain ixwebsocket PRIVATE nlohmann_json::nlohmann_json)
 
 target_include_directories(infrastructure PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -84,11 +84,7 @@ add_executable(market_data_engine
     src/main.cpp
 )
 
-target_include_directories(market_data_engine PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-
-target_link_libraries(market_data_engine PRIVATE domain)
+target_link_libraries(market_data_engine PRIVATE services infrastructure nlohmann_json::nlohmann_json)
 
 # Tools
 add_executable(ws_listener tools/ws_listener.cpp)
