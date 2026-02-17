@@ -59,9 +59,10 @@ target_include_directories(domain PUBLIC
 # Infrastructure library
 add_library(infrastructure
     src/infrastructure/PolymarketMessageParser.cpp
+    src/infrastructure/PolymarketClient.cpp
 )
 
-target_link_libraries(infrastructure PUBLIC domain PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(infrastructure PUBLIC domain PRIVATE nlohmann_json::nlohmann_json ixwebsocket)
 
 target_include_directories(infrastructure PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
