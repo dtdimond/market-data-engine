@@ -1,3 +1,4 @@
+#include "config/Settings.hpp"
 #include "infrastructure/PolymarketClient.hpp"
 #include "repositories/InMemoryOrderBookRepository.hpp"
 #include "services/OrderBookService.hpp"
@@ -20,14 +21,15 @@ void signal_handler(int) {
     running = false;
 }
 
-std::string fetch_market_name(const std::string& token_id) {
+std::string fetch_market_name(const std::string& token_id,
+                              const mde::config::ApiSettings& api_settings) {
     ix::HttpClient client;
     auto args = client.createRequest();
     args->connectTimeout = 5;
     args->transferTimeout = 10;
 
     std::string url =
-        "https://gamma-api.polymarket.com/markets?clob_token_ids=" + token_id;
+        api_settings.gamma_api_base_url + "/markets?clob_token_ids=" + token_id;
     auto response = client.get(url, args);
 
     if (response->statusCode == 200) {
@@ -111,14 +113,16 @@ int main(int argc, char* argv[]) {
 
     std::string token_id = argv[1];
 
+    auto settings = mde::config::Settings::from_environment();
+
     mde::repositories::InMemoryOrderBookRepository repo;
-    mde::infrastructure::PolymarketClient client;
-    mde::services::OrderBookService service(repo, client);
+    mde::infrastructure::PolymarketClient client(settings.websocket);
+    mde::services::OrderBookService service(repo, client, settings.service.snapshot_interval_seconds);
 
     service.subscribe(token_id);
 
     std::cout << "Looking up market..." << std::endl;
-    std::string market_name = fetch_market_name(token_id);
+    std::string market_name = fetch_market_name(token_id, settings.api);
 
     std::signal(SIGINT, signal_handler);
 
@@ -130,6 +134,7 @@ int main(int argc, char* argv[]) {
     std::optional<mde::domain::MarketAsset> resolved_asset;
 
     while (running) {
+        // sleep to only update display every 1 sec. Book is updating in other thread as events come in.
         std::this_thread::sleep_for(std::chrono::seconds(1));
 
         try {

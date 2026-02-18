@@ -1,5 +1,6 @@
 #pragma once
 
+#include "config/Settings.hpp"
 #include "infrastructure/PolymarketMessageParser.hpp"
 #include "services/IMarketDataFeed.hpp"
 
@@ -14,7 +15,7 @@ namespace mde::infrastructure {
 
 class PolymarketClient : public mde::services::IMarketDataFeed {
 public:
-    PolymarketClient();
+    explicit PolymarketClient(const mde::config::WebSocketSettings& settings = {});
     ~PolymarketClient() override;
 
     void set_on_event(EventCallback callback) override;

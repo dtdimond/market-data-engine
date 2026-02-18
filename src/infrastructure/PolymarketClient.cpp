@@ -2,9 +2,9 @@
 
 namespace mde::infrastructure {
 
-PolymarketClient::PolymarketClient() {
-    ws_.setUrl("wss://ws-subscriptions-clob.polymarket.com/ws/market");
-    ws_.setPingInterval(30);
+PolymarketClient::PolymarketClient(const mde::config::WebSocketSettings& settings) {
+    ws_.setUrl(settings.url);
+    ws_.setPingInterval(settings.ping_interval_seconds);
 
     ws_.setOnMessageCallback([this](const ix::WebSocketMessagePtr& msg) {
         on_message(msg);

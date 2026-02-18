@@ -42,6 +42,15 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(json)
 
+# Config library
+add_library(config
+    src/config/Settings.cpp
+)
+
+target_include_directories(config PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
 # Domain library
 add_library(domain
     src/domain/value_objects/Price.cpp
@@ -62,7 +71,7 @@ add_library(infrastructure
     src/infrastructure/PolymarketClient.cpp
 )
 
-target_link_libraries(infrastructure PUBLIC domain ixwebsocket PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(infrastructure PUBLIC domain config ixwebsocket PRIVATE nlohmann_json::nlohmann_json)
 
 target_include_directories(infrastructure PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -84,7 +93,7 @@ add_executable(market_data_engine
     src/main.cpp
 )
 
-target_link_libraries(market_data_engine PRIVATE services infrastructure nlohmann_json::nlohmann_json)
+target_link_libraries(market_data_engine PRIVATE services infrastructure config nlohmann_json::nlohmann_json)
 
 # Tools
 add_executable(ws_listener tools/ws_listener.cpp)
