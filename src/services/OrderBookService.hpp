@@ -33,6 +33,7 @@ public:
     // Asset resolution and event count
     std::optional<mde::domain::MarketAsset> resolve_asset(const std::string& token_id) const;
     uint64_t event_count() const;
+    size_t book_count() const;
 
 private:
     void maybe_snapshot(const mde::domain::MarketAsset& asset, uint64_t sequence_number);

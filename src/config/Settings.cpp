@@ -11,6 +11,13 @@ std::string env_or(const char* name, const std::string& fallback) {
     return val ? std::string(val) : fallback;
 }
 
+bool env_bool_or(const char* name, bool fallback) {
+    const char* val = std::getenv(name);
+    if (!val) return fallback;
+    std::string s(val);
+    return s == "true" || s == "1";
+}
+
 int env_int_or(const char* name, int fallback) {
     const char* val = std::getenv(name);
     if (!val) return fallback;
@@ -38,6 +45,10 @@ Settings Settings::from_environment() {
     s.storage.s3_region = env_or("MDE_S3_REGION", s.storage.s3_region);
     s.storage.s3_endpoint_override = env_or("MDE_S3_ENDPOINT", s.storage.s3_endpoint_override);
     s.storage.s3_scheme = env_or("MDE_S3_SCHEME", s.storage.s3_scheme);
+    s.discovery.enabled = env_bool_or("MDE_DISCOVERY_ENABLED", s.discovery.enabled);
+    s.discovery.max_tracked_markets = env_int_or("MDE_MAX_TRACKED_MARKETS", s.discovery.max_tracked_markets);
+    s.discovery.discovery_interval_seconds = env_int_or("MDE_DISCOVERY_INTERVAL", s.discovery.discovery_interval_seconds);
+    s.discovery.markets_per_poll = env_int_or("MDE_MARKETS_PER_POLL", s.discovery.markets_per_poll);
     return s;
 }
 
@@ -56,6 +67,7 @@ Settings Settings::production() {
     s.storage.backend = "parquet";
     s.storage.data_directory = "data/prod";
     s.storage.write_buffer_size = 4096;
+    s.discovery.enabled = true;
     return s;
 }
 

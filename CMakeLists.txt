@@ -84,6 +84,21 @@ add_library(infrastructure
 
 target_link_libraries(infrastructure PUBLIC domain config ixwebsocket PRIVATE nlohmann_json::nlohmann_json)
 
+# Market discovery library (conditional on Arrow)
+if(MDE_HAS_PARQUET)
+    add_library(market_discovery
+        src/infrastructure/MarketDiscovery.cpp
+    )
+
+    target_link_libraries(market_discovery PUBLIC config Arrow::arrow_shared PRIVATE ixwebsocket nlohmann_json::nlohmann_json)
+
+    target_include_directories(market_discovery PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+
+    target_compile_definitions(market_discovery PUBLIC MDE_HAS_PARQUET)
+endif()
+
 target_include_directories(infrastructure PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
@@ -122,7 +137,7 @@ add_executable(market_data_engine
 
 target_link_libraries(market_data_engine PRIVATE services infrastructure config nlohmann_json::nlohmann_json)
 if(MDE_HAS_PARQUET)
-    target_link_libraries(market_data_engine PRIVATE parquet_repository)
+    target_link_libraries(market_data_engine PRIVATE parquet_repository market_discovery)
     target_compile_definitions(market_data_engine PRIVATE MDE_HAS_PARQUET)
 endif()
 

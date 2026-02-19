@@ -21,6 +21,7 @@ void PolymarketClient::set_on_event(EventCallback callback) {
 }
 
 void PolymarketClient::subscribe(const std::string& token_id) {
+    std::lock_guard lock(sub_mutex_);
     token_ids_.push_back(token_id);
     if (connected_) {
         send_subscribe();
@@ -39,8 +40,11 @@ void PolymarketClient::on_message(const ix::WebSocketMessagePtr& msg) {
     switch (msg->type) {
         case ix::WebSocketMessageType::Open:
             connected_ = true;
-            if (!token_ids_.empty()) {
-                send_subscribe();
+            {
+                std::lock_guard lock(sub_mutex_);
+                if (!token_ids_.empty()) {
+                    send_subscribe();
+                }
             }
             break;
 

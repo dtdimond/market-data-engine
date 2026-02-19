@@ -32,10 +32,12 @@ if(MDE_HAS_PARQUET)
         infrastructure/parquet/ParquetSchemasTest.cpp
         infrastructure/parquet/ParquetSerializationTest.cpp
         infrastructure/parquet/ParquetIntegrationTest.cpp
+        infrastructure/MarketDiscoveryTest.cpp
     )
 
     target_link_libraries(parquet_unit_tests PRIVATE
         parquet_repository
+        market_discovery
         domain
         config
         GTest::gtest_main

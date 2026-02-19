@@ -15,6 +15,10 @@ TEST(Settings, DefaultsAreReasonable) {
     EXPECT_EQ(s.storage.backend, "memory");
     EXPECT_EQ(s.storage.data_directory, "data");
     EXPECT_EQ(s.storage.write_buffer_size, 1024);
+    EXPECT_FALSE(s.discovery.enabled);
+    EXPECT_EQ(s.discovery.max_tracked_markets, 500);
+    EXPECT_EQ(s.discovery.discovery_interval_seconds, 1800);
+    EXPECT_EQ(s.discovery.markets_per_poll, 50);
 }
 
 TEST(Settings, FromEnvironmentDefaultsToDevelopment) {
@@ -27,6 +31,10 @@ TEST(Settings, FromEnvironmentDefaultsToDevelopment) {
     unsetenv("MDE_STORAGE_BACKEND");
     unsetenv("MDE_DATA_DIRECTORY");
     unsetenv("MDE_WRITE_BUFFER_SIZE");
+    unsetenv("MDE_DISCOVERY_ENABLED");
+    unsetenv("MDE_MAX_TRACKED_MARKETS");
+    unsetenv("MDE_DISCOVERY_INTERVAL");
+    unsetenv("MDE_MARKETS_PER_POLL");
 
     auto s = Settings::from_environment();
     auto dev = Settings::development();
@@ -104,4 +112,32 @@ TEST(Settings, ProductionPreset) {
     EXPECT_EQ(s.storage.backend, "parquet");
     EXPECT_EQ(s.storage.data_directory, "data/prod");
     EXPECT_EQ(s.storage.write_buffer_size, 4096);
+    EXPECT_TRUE(s.discovery.enabled);
+}
+
+TEST(Settings, DiscoverySettingsFromEnvVars) {
+    unsetenv("MDE_ENV");
+    setenv("MDE_DISCOVERY_ENABLED", "true", 1);
+    setenv("MDE_MAX_TRACKED_MARKETS", "100", 1);
+    setenv("MDE_DISCOVERY_INTERVAL", "600", 1);
+    setenv("MDE_MARKETS_PER_POLL", "25", 1);
+
+    auto s = Settings::from_environment();
+    EXPECT_TRUE(s.discovery.enabled);
+    EXPECT_EQ(s.discovery.max_tracked_markets, 100);
+    EXPECT_EQ(s.discovery.discovery_interval_seconds, 600);
+    EXPECT_EQ(s.discovery.markets_per_poll, 25);
+
+    unsetenv("MDE_DISCOVERY_ENABLED");
+    unsetenv("MDE_MAX_TRACKED_MARKETS");
+    unsetenv("MDE_DISCOVERY_INTERVAL");
+    unsetenv("MDE_MARKETS_PER_POLL");
+}
+
+TEST(Settings, DiscoveryDisabledByDefault) {
+    unsetenv("MDE_ENV");
+    unsetenv("MDE_DISCOVERY_ENABLED");
+
+    auto s = Settings::from_environment();
+    EXPECT_FALSE(s.discovery.enabled);
 }

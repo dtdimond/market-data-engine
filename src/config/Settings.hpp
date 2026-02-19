@@ -17,6 +17,13 @@ struct ServiceSettings {
     int snapshot_interval_seconds = 10;
 };
 
+struct DiscoverySettings {
+    bool enabled = false;
+    int max_tracked_markets = 500;
+    int discovery_interval_seconds = 1800;  // 30 min
+    int markets_per_poll = 50;
+};
+
 struct StorageSettings {
     std::string backend = "memory";       // "memory", "parquet", or "s3"
     std::string data_directory = "data";
@@ -33,6 +40,7 @@ struct Settings {
     WebSocketSettings websocket;
     ApiSettings api;
     ServiceSettings service;
+    DiscoverySettings discovery;
     StorageSettings storage;
 
     static Settings from_environment();

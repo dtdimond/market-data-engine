@@ -5,20 +5,19 @@
 #include "services/OrderBookService.hpp"
 
 #ifdef MDE_HAS_PARQUET
+#include "infrastructure/MarketDiscovery.hpp"
 #include "repositories/parquet/ParquetOrderBookRepository.hpp"
+#include <arrow/filesystem/localfs.h>
 #include <arrow/filesystem/s3fs.h>
 #endif
 
-#include <ixwebsocket/IXHttpClient.h>
 #include <nlohmann/json.hpp>
 
 #include <atomic>
 #include <chrono>
 #include <csignal>
-#include <iomanip>
 #include <iostream>
 #include <memory>
-#include <optional>
 #include <thread>
 
 static std::atomic<bool> running{true};
@@ -27,109 +26,33 @@ void signal_handler(int) {
     running = false;
 }
 
-std::string fetch_market_name(const std::string& token_id,
-                              const mde::config::ApiSettings& api_settings) {
-    ix::HttpClient client;
-    auto args = client.createRequest();
-    args->connectTimeout = 5;
-    args->transferTimeout = 10;
-
-    std::string url =
-        api_settings.gamma_api_base_url + "/markets?clob_token_ids=" + token_id;
-    auto response = client.get(url, args);
-
-    if (response->statusCode == 200) {
-        auto json = nlohmann::json::parse(response->body, nullptr, false);
-        if (json.is_array() && !json.empty() && json[0].contains("question")) {
-            return json[0]["question"].get<std::string>();
-        }
-    }
-    return "";
-}
-
-void print_book(const mde::domain::OrderBook& book, const std::string& market_name) {
-    std::cout << "\033[2J\033[H";  // Clear screen
-
-    std::cout << "=== Market Data Engine ===" << std::endl;
-    if (!market_name.empty()) {
-        std::cout << "Market: " << market_name << std::endl;
-    }
-    std::cout << "Asset: " << book.get_asset().token_id().substr(0, 20) << "..." << std::endl;
-    std::cout << std::fixed << std::setprecision(4);
-    std::cout << "Seq: " << book.get_last_sequence_number()
-              << "  Tick: " << book.get_tick_size().value() << std::endl;
-    std::cout << std::endl;
-
-    if (book.get_depth() > 0) {
-        auto spread = book.get_spread();
-        std::cout << std::fixed << std::setprecision(4);
-        std::cout << "Best Bid: " << spread.best_bid.value()
-                  << "  Best Ask: " << spread.best_ask.value()
-                  << "  Spread: " << spread.value() << std::endl;
-        std::cout << "Midpoint: " << book.get_midpoint().value() << std::endl;
-        std::cout << std::endl;
-
-        // Top 5 bids and asks
-        auto& bids = book.get_bids();
-        auto& asks = book.get_asks();
-        int levels = 5;
-
-        std::cout << "       BIDS              ASKS" << std::endl;
-        std::cout << "  Price    Size      Price    Size" << std::endl;
-        std::cout << "  -----    ----      -----    ----" << std::endl;
-
-        for (int i = 0; i < levels; ++i) {
-            if (i < static_cast<int>(bids.size())) {
-                std::cout << std::setprecision(4) << std::setw(7) << bids[i].price().value()
-                          << std::setprecision(1) << std::setw(8) << bids[i].size().size();
-            } else {
-                std::cout << "               ";
-            }
-
-            std::cout << "    ";
-
-            if (i < static_cast<int>(asks.size())) {
-                std::cout << std::setw(7) << std::setprecision(4) << asks[i].price().value()
-                          << std::setw(8) << std::setprecision(1) << asks[i].size().size();
-            }
-            std::cout << std::endl;
-        }
-
-        std::cout << std::endl;
-        std::cout << "Depth: " << bids.size() << " bids, " << asks.size() << " asks" << std::endl;
-    } else {
-        std::cout << "(waiting for data...)" << std::endl;
-    }
-
-    if (book.get_latest_trade().has_value()) {
-        auto trade = *book.get_latest_trade();
-        std::cout << std::endl;
-        std::cout << "Last Trade: " << std::fixed << std::setprecision(4) << trade.price.value()
-                  << " x " << std::setprecision(2) << trade.size.size()
-                  << " (" << (trade.side == mde::domain::Side::BUY ? "BUY" : "SELL") << ")"
-                  << std::endl;
-    }
-}
-
 int main(int argc, char* argv[]) {
-    if (argc < 2) {
-        std::cerr << "Usage: market_data_engine <token_id>" << std::endl;
+    auto settings = mde::config::Settings::from_environment();
+
+    // Optional CLI arg: seed token ID
+    std::string seed_token_id;
+    if (argc >= 2) {
+        seed_token_id = argv[1];
+    }
+
+    // If no seed token and discovery disabled, nothing to do
+    if (seed_token_id.empty() && !settings.discovery.enabled) {
+        std::cerr << "Usage: market_data_engine [token_id]" << std::endl;
+        std::cerr << "       Set MDE_DISCOVERY_ENABLED=true for auto-discovery mode." << std::endl;
         return 1;
     }
-
-    std::string token_id = argv[1];
-
-    auto settings = mde::config::Settings::from_environment();
 
     std::unique_ptr<mde::repositories::IOrderBookRepository> repo;
 
 #ifdef MDE_HAS_PARQUET
-    // RAII guard: initialize S3 before creating the repo, finalize after it destructs
     struct S3Guard {
         S3Guard() { (void)arrow::fs::EnsureS3Initialized(); }
         ~S3Guard() { (void)arrow::fs::EnsureS3Finalized(); }
     };
     std::unique_ptr<S3Guard> s3_guard;
+
+    // Shared filesystem for both repo and discovery
+    std::shared_ptr<arrow::fs::FileSystem> shared_fs;
 #endif
 
     if (settings.storage.backend == "s3") {
@@ -139,10 +62,10 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         s3_guard = std::make_unique<S3Guard>();
-        auto fs = mde::repositories::pq::ParquetOrderBookRepository::make_s3_fs(
+        shared_fs = mde::repositories::pq::ParquetOrderBookRepository::make_s3_fs(
             settings.storage);
         repo = std::make_unique<mde::repositories::pq::ParquetOrderBookRepository>(
-            fs, settings.storage);
+            shared_fs, settings.storage);
 #else
         std::cerr << "S3 backend requested but not compiled in. "
                   << "Rebuild with Apache Arrow installed." << std::endl;
@@ -150,10 +73,10 @@ int main(int argc, char* argv[]) {
 #endif
     } else if (settings.storage.backend == "parquet") {
 #ifdef MDE_HAS_PARQUET
-        auto fs = mde::repositories::pq::ParquetOrderBookRepository::make_local_fs(
+        shared_fs = mde::repositories::pq::ParquetOrderBookRepository::make_local_fs(
             settings.storage.data_directory);
         repo = std::make_unique<mde::repositories::pq::ParquetOrderBookRepository>(
-            fs, settings.storage);
+            shared_fs, settings.storage);
 #else
         std::cerr << "Parquet backend requested but not compiled in. "
                   << "Rebuild with Apache Arrow installed." << std::endl;
@@ -166,39 +89,93 @@ int main(int argc, char* argv[]) {
     mde::infrastructure::PolymarketClient client(settings.websocket);
     mde::services::OrderBookService service(*repo, client, settings.service.snapshot_interval_seconds);
 
-    service.subscribe(token_id);
+    // Subscribe seed token if provided
+    if (!seed_token_id.empty()) {
+        service.subscribe(seed_token_id);
+    }
 
-    std::cout << "Looking up market..." << std::endl;
-    std::string market_name = fetch_market_name(token_id, settings.api);
+#ifdef MDE_HAS_PARQUET
+    // Discovery setup
+    std::unique_ptr<mde::infrastructure::MarketDiscovery> discovery;
+    if (settings.discovery.enabled) {
+        discovery = std::make_unique<mde::infrastructure::MarketDiscovery>(
+            shared_fs, settings.api, settings.discovery);
+        discovery->load();
+
+        // Subscribe all restored tracked IDs
+        for (const auto& id : discovery->tracked_token_ids()) {
+            service.subscribe(id);
+        }
+
+        std::cout << "[discovery] Restored " << discovery->tracked_count()
+                  << " tracked markets" << std::endl;
+    }
+#endif
 
     std::signal(SIGINT, signal_handler);
 
     service.start();
-    std::cout << "Connecting..." << std::endl;
+    std::cout << "[engine] Started" << std::endl;
 
-    // We need the full MarketAsset (condition_id + token_id) to look up the book,
-    // but we only know token_id until the first event arrives with the condition_id.
-    std::optional<mde::domain::MarketAsset> resolved_asset;
+#ifdef MDE_HAS_PARQUET
+    // Discovery thread
+    std::thread discovery_thread;
+    if (discovery) {
+        discovery_thread = std::thread([&]() {
+            while (running) {
+                try {
+                    size_t added = discovery->poll([&](const std::vector<std::string>& new_ids) {
+                        for (const auto& id : new_ids) {
+                            service.subscribe(id);
+                        }
+                    });
+                    if (added > 0) {
+                        std::cout << "[discovery] Added " << added << " new markets, total="
+                                  << discovery->tracked_count() << std::endl;
+                    }
+                } catch (const std::exception& e) {
+                    std::cerr << "[discovery] Poll error: " << e.what() << std::endl;
+                }
+
+                // Sleep in 1-second increments to allow clean shutdown
+                for (int i = 0; i < settings.discovery.discovery_interval_seconds && running; ++i) {
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                }
+            }
+        });
+    }
+#endif
+
+    // Log-mode stats loop
+    uint64_t last_event_count = 0;
+    auto last_stats_time = std::chrono::steady_clock::now();
 
     while (running) {
-        // sleep to only update display every 1 sec. Book is updating in other thread as events come in.
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::this_thread::sleep_for(std::chrono::seconds(10));
+        if (!running) break;
 
-        try {
-            if (!resolved_asset) {
-                resolved_asset = service.resolve_asset(token_id);
-            }
+        auto now = std::chrono::steady_clock::now();
+        double elapsed = std::chrono::duration<double>(now - last_stats_time).count();
+        uint64_t current_events = service.event_count();
+        double events_per_sec = (elapsed > 0) ? (current_events - last_event_count) / elapsed : 0;
 
-            if (resolved_asset) {
-                auto& book = service.get_current_book(*resolved_asset);
-                print_book(book, market_name);
-            }
-        } catch (...) {
-            // Book not ready yet
-        }
+        std::cout << "[stats] markets=" << service.book_count()
+                  << " events/sec=" << static_cast<int>(events_per_sec)
+                  << " total_events=" << current_events
+                  << std::endl;
+
+        last_event_count = current_events;
+        last_stats_time = now;
     }
 
     service.stop();
-    std::cout << "\nDone. Processed " << service.event_count() << " events." << std::endl;
+
+#ifdef MDE_HAS_PARQUET
+    if (discovery_thread.joinable()) {
+        discovery_thread.join();
+    }
+#endif
+
+    std::cout << "\n[engine] Done. Processed " << service.event_count() << " events." << std::endl;
     return 0;
 }

@@ -84,6 +84,10 @@ uint64_t OrderBookService::event_count() const {
     return next_sequence_number_ - 1;
 }
 
+size_t OrderBookService::book_count() const {
+    return current_books_.size();
+}
+
 void OrderBookService::maybe_snapshot(const MarketAsset& asset, uint64_t sequence_number) {
     if (snapshot_interval_ > 0 && sequence_number % snapshot_interval_ == 0) {
         auto it = current_books_.find(asset);

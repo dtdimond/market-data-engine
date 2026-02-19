@@ -30,6 +30,7 @@ private:
     std::vector<std::string> token_ids_;
     std::atomic<bool> connected_{false};
     std::mutex callback_mutex_;
+    std::mutex sub_mutex_;
 
     void on_message(const ix::WebSocketMessagePtr& msg);
     void send_subscribe();
