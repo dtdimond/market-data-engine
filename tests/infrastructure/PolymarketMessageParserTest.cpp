@@ -206,6 +206,7 @@ TEST_F(ParserTest, HandlesNonArrayMessage) {
     EXPECT_TRUE(std::holds_alternative<TradeEvent>(events[0]));
 }
 
-TEST_F(ParserTest, ThrowsOnMalformedJson) {
-    EXPECT_ANY_THROW(parser.parse("not json"));
+TEST_F(ParserTest, ReturnsEmptyOnMalformedJson) {
+    auto events = parser.parse("not json");
+    EXPECT_TRUE(events.empty());
 }

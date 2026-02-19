@@ -23,6 +23,7 @@ out/
 *.dSYM
 
 # Logs and data
+data/
 *.log
 *.csv
 *.dat

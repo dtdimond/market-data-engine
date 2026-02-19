@@ -98,7 +98,8 @@ TickSizeChange parse_tick_size_change(const json& obj) {
 std::vector<OrderBookEventVariant> PolymarketMessageParser::parse(
     const std::string& json_str) const {
 
-    auto json_msg = json::parse(json_str);
+    auto json_msg = json::parse(json_str, nullptr, false);
+    if (json_msg.is_discarded()) return {};
     std::vector<OrderBookEventVariant> events;
 
     // Polymarket wraps messages in a JSON array
