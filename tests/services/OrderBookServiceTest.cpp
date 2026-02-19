@@ -160,6 +160,44 @@ TEST_F(OrderBookServiceTest, SnapshotsAtConfiguredInterval) {
     EXPECT_TRUE(repo.has_snapshot(asset));
 }
 
+// --- resolve_asset and event_count ---
+
+TEST_F(OrderBookServiceTest, ResolveAssetFindsKnownToken) {
+    OrderBookService service(repo, feed);
+    feed.emit(make_snapshot());
+
+    auto resolved = service.resolve_asset("6581861");
+    ASSERT_TRUE(resolved.has_value());
+    EXPECT_EQ(resolved->condition_id(), "0xbd31dc");
+    EXPECT_EQ(resolved->token_id(), "6581861");
+}
+
+TEST_F(OrderBookServiceTest, ResolveAssetReturnsNulloptForUnknown) {
+    OrderBookService service(repo, feed);
+    feed.emit(make_snapshot());
+
+    auto resolved = service.resolve_asset("unknown_token");
+    EXPECT_FALSE(resolved.has_value());
+}
+
+TEST_F(OrderBookServiceTest, EventCountStartsAtZero) {
+    OrderBookService service(repo, feed);
+    EXPECT_EQ(service.event_count(), 0);
+}
+
+TEST_F(OrderBookServiceTest, EventCountIncrementsWithEvents) {
+    OrderBookService service(repo, feed);
+    feed.emit(make_snapshot());
+    EXPECT_EQ(service.event_count(), 1);
+
+    TradeEvent trade{
+        {asset, Timestamp(2000), 0},
+        Price(0.50), Quantity(10.0), Side::BUY, "0"
+    };
+    feed.emit(trade);
+    EXPECT_EQ(service.event_count(), 2);
+}
+
 TEST_F(OrderBookServiceTest, NoSnapshotWhenIntervalZero) {
     OrderBookService service(repo, feed, /*snapshot_interval=*/0);
 

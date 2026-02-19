@@ -71,6 +71,19 @@ Price OrderBookService::get_midpoint(const MarketAsset& asset) const {
     return get_current_book(asset).get_midpoint();
 }
 
+std::optional<MarketAsset> OrderBookService::resolve_asset(const std::string& token_id) const {
+    for (const auto& [asset, book] : current_books_) {
+        if (asset.token_id() == token_id) {
+            return asset;
+        }
+    }
+    return std::nullopt;
+}
+
+uint64_t OrderBookService::event_count() const {
+    return next_sequence_number_ - 1;
+}
+
 void OrderBookService::maybe_snapshot(const MarketAsset& asset, uint64_t sequence_number) {
     if (snapshot_interval_ > 0 && sequence_number % snapshot_interval_ == 0) {
         auto it = current_books_.find(asset);

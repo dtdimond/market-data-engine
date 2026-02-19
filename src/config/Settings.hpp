@@ -18,6 +18,7 @@ struct ServiceSettings {
 };
 
 struct StorageSettings {
+    std::string backend = "memory";
     std::string data_directory = "data";
     int write_buffer_size = 1024;
 };

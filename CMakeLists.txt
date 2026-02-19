@@ -42,6 +42,20 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(json)
 
+# Apache Arrow / Parquet (optional)
+find_package(Arrow QUIET)
+find_package(Parquet QUIET)
+if(Arrow_FOUND AND Parquet_FOUND)
+    set(MDE_HAS_PARQUET ON)
+    message(STATUS "Apache Arrow ${Arrow_VERSION} found — Parquet support enabled")
+else()
+    set(MDE_HAS_PARQUET OFF)
+    message(STATUS "Apache Arrow not found — Parquet support disabled (InMemory only)")
+endif()
+
+# Integration tests (opt-in)
+option(MDE_INTEGRATION_TESTS "Build integration tests (requires disk I/O)" OFF)
+
 # Config library
 add_library(config
     src/config/Settings.cpp
@@ -77,6 +91,22 @@ target_include_directories(infrastructure PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
+# Parquet repository library (conditional)
+if(MDE_HAS_PARQUET)
+    add_library(parquet_repository
+        src/repositories/parquet/ParquetSchemas.cpp
+        src/repositories/parquet/ParquetOrderBookRepository.cpp
+    )
+
+    target_link_libraries(parquet_repository PUBLIC domain config Arrow::arrow_shared Parquet::parquet_shared)
+
+    target_include_directories(parquet_repository PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+
+    target_compile_definitions(parquet_repository PUBLIC MDE_HAS_PARQUET)
+endif()
+
 # Services library
 add_library(services
     src/services/OrderBookService.cpp
@@ -94,6 +124,10 @@ add_executable(market_data_engine
 )
 
 target_link_libraries(market_data_engine PRIVATE services infrastructure config nlohmann_json::nlohmann_json)
+if(MDE_HAS_PARQUET)
+    target_link_libraries(market_data_engine PRIVATE parquet_repository)
+    target_compile_definitions(market_data_engine PRIVATE MDE_HAS_PARQUET)
+endif()
 
 # Tools
 add_executable(ws_listener tools/ws_listener.cpp)

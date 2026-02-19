@@ -12,6 +12,7 @@ TEST(Settings, DefaultsAreReasonable) {
     EXPECT_EQ(s.websocket.ping_interval_seconds, 30);
     EXPECT_EQ(s.api.gamma_api_base_url, "https://gamma-api.polymarket.com");
     EXPECT_EQ(s.service.snapshot_interval_seconds, 10);
+    EXPECT_EQ(s.storage.backend, "memory");
     EXPECT_EQ(s.storage.data_directory, "data");
     EXPECT_EQ(s.storage.write_buffer_size, 1024);
 }
@@ -23,6 +24,7 @@ TEST(Settings, FromEnvironmentDefaultsToDevelopment) {
     unsetenv("MDE_PING_INTERVAL");
     unsetenv("MDE_GAMMA_API_URL");
     unsetenv("MDE_SNAPSHOT_INTERVAL");
+    unsetenv("MDE_STORAGE_BACKEND");
     unsetenv("MDE_DATA_DIRECTORY");
     unsetenv("MDE_WRITE_BUFFER_SIZE");
 
@@ -37,11 +39,13 @@ TEST(Settings, FromEnvironmentSelectsProductionPreset) {
     setenv("MDE_ENV", "production", 1);
     unsetenv("MDE_WEBSOCKET_URL");
     unsetenv("MDE_PING_INTERVAL");
+    unsetenv("MDE_STORAGE_BACKEND");
     unsetenv("MDE_DATA_DIRECTORY");
 
     auto s = Settings::from_environment();
     auto prod = Settings::production();
     EXPECT_EQ(s.websocket.ping_interval_seconds, prod.websocket.ping_interval_seconds);
+    EXPECT_EQ(s.storage.backend, "parquet");
     EXPECT_EQ(s.storage.data_directory, prod.storage.data_directory);
     EXPECT_EQ(s.storage.write_buffer_size, prod.storage.write_buffer_size);
 
@@ -54,6 +58,7 @@ TEST(Settings, FromEnvironmentReadsEnvVars) {
     setenv("MDE_PING_INTERVAL", "10", 1);
     setenv("MDE_GAMMA_API_URL", "http://localhost:3000", 1);
     setenv("MDE_SNAPSHOT_INTERVAL", "3", 1);
+    setenv("MDE_STORAGE_BACKEND", "parquet", 1);
     setenv("MDE_DATA_DIRECTORY", "/tmp/mde", 1);
     setenv("MDE_WRITE_BUFFER_SIZE", "2048", 1);
 
@@ -62,6 +67,7 @@ TEST(Settings, FromEnvironmentReadsEnvVars) {
     EXPECT_EQ(s.websocket.ping_interval_seconds, 10);
     EXPECT_EQ(s.api.gamma_api_base_url, "http://localhost:3000");
     EXPECT_EQ(s.service.snapshot_interval_seconds, 3);
+    EXPECT_EQ(s.storage.backend, "parquet");
     EXPECT_EQ(s.storage.data_directory, "/tmp/mde");
     EXPECT_EQ(s.storage.write_buffer_size, 2048);
 
@@ -70,6 +76,7 @@ TEST(Settings, FromEnvironmentReadsEnvVars) {
     unsetenv("MDE_PING_INTERVAL");
     unsetenv("MDE_GAMMA_API_URL");
     unsetenv("MDE_SNAPSHOT_INTERVAL");
+    unsetenv("MDE_STORAGE_BACKEND");
     unsetenv("MDE_DATA_DIRECTORY");
     unsetenv("MDE_WRITE_BUFFER_SIZE");
 }
@@ -86,6 +93,7 @@ TEST(Settings, DevelopmentPreset) {
     auto s = Settings::development();
     EXPECT_EQ(s.websocket.ping_interval_seconds, 30);
     EXPECT_EQ(s.service.snapshot_interval_seconds, 10);
+    EXPECT_EQ(s.storage.backend, "memory");
     EXPECT_EQ(s.storage.data_directory, "data/dev");
 }
 
@@ -93,6 +101,7 @@ TEST(Settings, ProductionPreset) {
     auto s = Settings::production();
     EXPECT_EQ(s.websocket.ping_interval_seconds, 15);
     EXPECT_EQ(s.service.snapshot_interval_seconds, 5);
+    EXPECT_EQ(s.storage.backend, "parquet");
     EXPECT_EQ(s.storage.data_directory, "data/prod");
     EXPECT_EQ(s.storage.write_buffer_size, 4096);
 }

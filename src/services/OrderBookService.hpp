@@ -6,6 +6,8 @@
 
 #include <cstdint>
 #include <map>
+#include <optional>
+#include <string>
 
 namespace mde::services {
 
@@ -27,6 +29,10 @@ public:
     const mde::domain::OrderBook& get_current_book(const mde::domain::MarketAsset& asset) const;
     mde::domain::Spread get_current_spread(const mde::domain::MarketAsset& asset) const;
     mde::domain::Price get_midpoint(const mde::domain::MarketAsset& asset) const;
+
+    // Asset resolution and event count
+    std::optional<mde::domain::MarketAsset> resolve_asset(const std::string& token_id) const;
+    uint64_t event_count() const;
 
 private:
     void maybe_snapshot(const mde::domain::MarketAsset& asset, uint64_t sequence_number);

@@ -1,7 +1,12 @@
 #include "config/Settings.hpp"
 #include "infrastructure/PolymarketClient.hpp"
+#include "repositories/IOrderBookRepository.hpp"
 #include "repositories/InMemoryOrderBookRepository.hpp"
 #include "services/OrderBookService.hpp"
+
+#ifdef MDE_HAS_PARQUET
+#include "repositories/parquet/ParquetOrderBookRepository.hpp"
+#endif
 
 #include <ixwebsocket/IXHttpClient.h>
 #include <nlohmann/json.hpp>
@@ -11,9 +16,9 @@
 #include <csignal>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <thread>
-#include <variant>
 
 static std::atomic<bool> running{true};
 
@@ -115,9 +120,21 @@ int main(int argc, char* argv[]) {
 
     auto settings = mde::config::Settings::from_environment();
 
-    mde::repositories::InMemoryOrderBookRepository repo;
+    std::unique_ptr<mde::repositories::IOrderBookRepository> repo;
+    if (settings.storage.backend == "parquet") {
+#ifdef MDE_HAS_PARQUET
+        repo = std::make_unique<mde::repositories::pq::ParquetOrderBookRepository>(settings.storage);
+#else
+        std::cerr << "Parquet backend requested but not compiled in. "
+                  << "Rebuild with Apache Arrow installed." << std::endl;
+        return 1;
+#endif
+    } else {
+        repo = std::make_unique<mde::repositories::InMemoryOrderBookRepository>();
+    }
+
     mde::infrastructure::PolymarketClient client(settings.websocket);
-    mde::services::OrderBookService service(repo, client, settings.service.snapshot_interval_seconds);
+    mde::services::OrderBookService service(*repo, client, settings.service.snapshot_interval_seconds);
 
     service.subscribe(token_id);
 
@@ -139,16 +156,7 @@ int main(int argc, char* argv[]) {
 
         try {
             if (!resolved_asset) {
-                // Scan events to find one matching our token_id
-                for (const auto& event : repo.events()) {
-                    const auto& asset = std::visit(
-                        [](const auto& e) -> const mde::domain::MarketAsset& { return e.asset; },
-                        event);
-                    if (asset.token_id() == token_id) {
-                        resolved_asset = asset;
-                        break;
-                    }
-                }
+                resolved_asset = service.resolve_asset(token_id);
             }
 
             if (resolved_asset) {
@@ -161,6 +169,6 @@ int main(int argc, char* argv[]) {
     }
 
     service.stop();
-    std::cout << "\nDone. Processed " << repo.event_count() << " events." << std::endl;
+    std::cout << "\nDone. Processed " << service.event_count() << " events." << std::endl;
     return 0;
 }
