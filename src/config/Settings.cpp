@@ -33,6 +33,11 @@ Settings Settings::from_environment() {
     s.storage.backend = env_or("MDE_STORAGE_BACKEND", s.storage.backend);
     s.storage.data_directory = env_or("MDE_DATA_DIRECTORY", s.storage.data_directory);
     s.storage.write_buffer_size = env_int_or("MDE_WRITE_BUFFER_SIZE", s.storage.write_buffer_size);
+    s.storage.s3_bucket = env_or("MDE_S3_BUCKET", s.storage.s3_bucket);
+    s.storage.s3_prefix = env_or("MDE_S3_PREFIX", s.storage.s3_prefix);
+    s.storage.s3_region = env_or("MDE_S3_REGION", s.storage.s3_region);
+    s.storage.s3_endpoint_override = env_or("MDE_S3_ENDPOINT", s.storage.s3_endpoint_override);
+    s.storage.s3_scheme = env_or("MDE_S3_SCHEME", s.storage.s3_scheme);
     return s;
 }
 

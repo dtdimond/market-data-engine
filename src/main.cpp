@@ -6,6 +6,7 @@
 
 #ifdef MDE_HAS_PARQUET
 #include "repositories/parquet/ParquetOrderBookRepository.hpp"
+#include <arrow/filesystem/s3fs.h>
 #endif
 
 #include <ixwebsocket/IXHttpClient.h>
@@ -121,7 +122,33 @@ int main(int argc, char* argv[]) {
     auto settings = mde::config::Settings::from_environment();
 
     std::unique_ptr<mde::repositories::IOrderBookRepository> repo;
-    if (settings.storage.backend == "parquet") {
+
+#ifdef MDE_HAS_PARQUET
+    // RAII guard: initialize S3 before creating the repo, finalize after it destructs
+    struct S3Guard {
+        S3Guard() { (void)arrow::fs::EnsureS3Initialized(); }
+        ~S3Guard() { (void)arrow::fs::EnsureS3Finalized(); }
+    };
+    std::unique_ptr<S3Guard> s3_guard;
+#endif
+
+    if (settings.storage.backend == "s3") {
+#ifdef MDE_HAS_PARQUET
+        if (settings.storage.s3_bucket.empty()) {
+            std::cerr << "S3 backend requires MDE_S3_BUCKET." << std::endl;
+            return 1;
+        }
+        s3_guard = std::make_unique<S3Guard>();
+        auto fs = mde::repositories::pq::ParquetOrderBookRepository::make_s3_fs(
+            settings.storage);
+        repo = std::make_unique<mde::repositories::pq::ParquetOrderBookRepository>(
+            fs, settings.storage);
+#else
+        std::cerr << "S3 backend requested but not compiled in. "
+                  << "Rebuild with Apache Arrow installed." << std::endl;
+        return 1;
+#endif
+    } else if (settings.storage.backend == "parquet") {
 #ifdef MDE_HAS_PARQUET
         auto fs = mde::repositories::pq::ParquetOrderBookRepository::make_local_fs(
             settings.storage.data_directory);

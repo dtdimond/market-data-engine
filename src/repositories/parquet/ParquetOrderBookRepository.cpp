@@ -4,6 +4,7 @@
 #include <arrow/api.h>
 #include <arrow/filesystem/api.h>
 #include <arrow/filesystem/localfs.h>
+#include <arrow/filesystem/s3fs.h>
 #include <parquet/arrow/reader.h>
 #include <parquet/arrow/writer.h>
 
@@ -82,6 +83,23 @@ std::shared_ptr<arrow::fs::FileSystem> ParquetOrderBookRepository::make_local_fs
     auto local = std::make_shared<arrow::fs::LocalFileSystem>();
     (void)local->CreateDir(root_dir, /*recursive=*/true);
     return std::make_shared<arrow::fs::SubTreeFileSystem>(root_dir, local);
+}
+
+std::shared_ptr<arrow::fs::FileSystem> ParquetOrderBookRepository::make_s3_fs(
+    const mde::config::StorageSettings& settings) {
+    auto options = arrow::fs::S3Options::Defaults();
+    options.region = settings.s3_region;
+    options.scheme = settings.s3_scheme;
+    if (!settings.s3_endpoint_override.empty()) {
+        options.endpoint_override = settings.s3_endpoint_override;
+    }
+
+    auto s3fs = arrow::fs::S3FileSystem::Make(options).ValueOrDie();
+    std::string base_path = settings.s3_bucket;
+    if (!settings.s3_prefix.empty()) {
+        base_path += "/" + settings.s3_prefix;
+    }
+    return std::make_shared<arrow::fs::SubTreeFileSystem>(base_path, s3fs);
 }
 
 void ParquetOrderBookRepository::append_event(const OrderBookEventVariant& event) {

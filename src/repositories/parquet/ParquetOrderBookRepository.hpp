@@ -20,6 +20,11 @@ public:
 
     /// Create a local filesystem rooted at root_dir (creates dir if needed).
     static std::shared_ptr<arrow::fs::FileSystem> make_local_fs(const std::string& root_dir);
+
+    /// Create an S3-compatible filesystem (AWS S3, R2, B2, Wasabi, MinIO).
+    /// Requires arrow::fs::EnsureS3Initialized() before use.
+    static std::shared_ptr<arrow::fs::FileSystem> make_s3_fs(
+        const mde::config::StorageSettings& settings);
     ~ParquetOrderBookRepository() override;
 
     // IOrderBookRepository

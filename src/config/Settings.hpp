@@ -18,9 +18,15 @@ struct ServiceSettings {
 };
 
 struct StorageSettings {
-    std::string backend = "memory";
+    std::string backend = "memory";       // "memory", "parquet", or "s3"
     std::string data_directory = "data";
     int write_buffer_size = 1024;
+    // S3-compatible storage (AWS S3, Cloudflare R2, Backblaze B2, Wasabi, MinIO)
+    std::string s3_bucket;
+    std::string s3_prefix = "mde";
+    std::string s3_region = "us-east-1";
+    std::string s3_endpoint_override;     // non-empty for R2/B2/Wasabi/MinIO
+    std::string s3_scheme = "https";      // "http" for local MinIO
 };
 
 struct Settings {
