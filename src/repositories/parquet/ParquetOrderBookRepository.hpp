@@ -3,7 +3,10 @@
 #include "config/Settings.hpp"
 #include "repositories/IOrderBookRepository.hpp"
 
+#include <arrow/filesystem/api.h>
+
 #include <chrono>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -12,7 +15,11 @@ namespace mde::repositories::pq {
 
 class ParquetOrderBookRepository : public mde::repositories::IOrderBookRepository {
 public:
-    explicit ParquetOrderBookRepository(const mde::config::StorageSettings& settings);
+    ParquetOrderBookRepository(std::shared_ptr<arrow::fs::FileSystem> fs,
+                               const mde::config::StorageSettings& settings);
+
+    /// Create a local filesystem rooted at root_dir (creates dir if needed).
+    static std::shared_ptr<arrow::fs::FileSystem> make_local_fs(const std::string& root_dir);
     ~ParquetOrderBookRepository() override;
 
     // IOrderBookRepository
@@ -52,6 +59,7 @@ private:
         const std::string& dir, const mde::domain::MarketAsset& asset,
         uint64_t min_sequence) const;
 
+    std::shared_ptr<arrow::fs::FileSystem> fs_;
     mde::config::StorageSettings settings_;
     mutable std::mutex mutex_;
 

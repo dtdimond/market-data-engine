@@ -53,9 +53,6 @@ else()
     message(STATUS "Apache Arrow not found — Parquet support disabled (InMemory only)")
 endif()
 
-# Integration tests (opt-in)
-option(MDE_INTEGRATION_TESTS "Build integration tests (requires disk I/O)" OFF)
-
 # Config library
 add_library(config
     src/config/Settings.cpp

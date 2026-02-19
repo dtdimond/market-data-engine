@@ -6,33 +6,27 @@
 #include "domain/events/TickSizeChange.hpp"
 #include "domain/events/TradeEvent.hpp"
 
+#include <arrow/filesystem/api.h>
+#include <arrow/filesystem/mockfs.h>
 #include <gtest/gtest.h>
 
-#include <filesystem>
 #include <variant>
-
-namespace fs = std::filesystem;
 
 using namespace mde::domain;
 using namespace mde::repositories::pq;
 
 class ParquetIntegrationTest : public ::testing::Test {
 protected:
-    std::string test_dir_;
+    std::shared_ptr<arrow::fs::FileSystem> fs_;
 
     void SetUp() override {
-        test_dir_ = fs::temp_directory_path().string() + "/mde_parquet_test_" +
-                     std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
-        fs::create_directories(test_dir_);
-    }
-
-    void TearDown() override {
-        fs::remove_all(test_dir_);
+        auto mock_fs = std::make_shared<arrow::fs::internal::MockFileSystem>(
+            arrow::fs::TimePoint(std::chrono::seconds(0)));
+        fs_ = std::make_shared<arrow::fs::SubTreeFileSystem>("/", mock_fs);
     }
 
     mde::config::StorageSettings make_settings(int buffer_size = 10) {
         mde::config::StorageSettings s;
-        s.data_directory = test_dir_;
         s.write_buffer_size = buffer_size;
         return s;
     }
@@ -67,7 +61,7 @@ protected:
 TEST_F(ParquetIntegrationTest, AppendAndReadEventsRoundtrip) {
     // Use small buffer to force immediate flush
     auto settings = make_settings(3);
-    ParquetOrderBookRepository repo(settings);
+    ParquetOrderBookRepository repo(fs_, settings);
 
     auto snap = make_snapshot(1);
     auto trade = make_trade(2);
@@ -93,7 +87,7 @@ TEST_F(ParquetIntegrationTest, AppendAndReadEventsRoundtrip) {
 TEST_F(ParquetIntegrationTest, UnflushedEventsAreVisibleInRead) {
     // Large buffer so nothing flushes
     auto settings = make_settings(1000);
-    ParquetOrderBookRepository repo(settings);
+    ParquetOrderBookRepository repo(fs_, settings);
 
     repo.append_event(make_snapshot(1));
     repo.append_event(make_trade(2));
@@ -106,21 +100,21 @@ TEST_F(ParquetIntegrationTest, FlushOnDestructor) {
     auto settings = make_settings(1000);
 
     {
-        ParquetOrderBookRepository repo(settings);
+        ParquetOrderBookRepository repo(fs_, settings);
         repo.append_event(make_snapshot(1));
         repo.append_event(make_trade(2));
         // Destructor flushes
     }
 
     // New repo should read the flushed events
-    ParquetOrderBookRepository repo2(settings);
+    ParquetOrderBookRepository repo2(fs_, settings);
     auto events = repo2.get_events_since(asset, 0);
     EXPECT_EQ(events.size(), 2);
 }
 
 TEST_F(ParquetIntegrationTest, SequenceFilteringWorks) {
     auto settings = make_settings(1);
-    ParquetOrderBookRepository repo(settings);
+    ParquetOrderBookRepository repo(fs_, settings);
 
     repo.append_event(make_snapshot(1));
     repo.append_event(make_trade(2));
@@ -134,7 +128,7 @@ TEST_F(ParquetIntegrationTest, SequenceFilteringWorks) {
 
 TEST_F(ParquetIntegrationTest, AssetFilteringWorks) {
     auto settings = make_settings(1);
-    ParquetOrderBookRepository repo(settings);
+    ParquetOrderBookRepository repo(fs_, settings);
 
     repo.append_event(make_snapshot(1));
 
@@ -145,7 +139,7 @@ TEST_F(ParquetIntegrationTest, AssetFilteringWorks) {
 
 TEST_F(ParquetIntegrationTest, SnapshotStoreAndLoad) {
     auto settings = make_settings(1000);
-    ParquetOrderBookRepository repo(settings);
+    ParquetOrderBookRepository repo(fs_, settings);
 
     auto snap = make_snapshot(5);
     auto book = OrderBook::empty(asset).apply(snap);
@@ -162,7 +156,7 @@ TEST_F(ParquetIntegrationTest, SnapshotStoreAndLoad) {
 
 TEST_F(ParquetIntegrationTest, SnapshotWithTradePreservesTrade) {
     auto settings = make_settings(1000);
-    ParquetOrderBookRepository repo(settings);
+    ParquetOrderBookRepository repo(fs_, settings);
 
     auto snap = make_snapshot(1);
     auto trade = make_trade(2);
@@ -178,7 +172,7 @@ TEST_F(ParquetIntegrationTest, SnapshotWithTradePreservesTrade) {
 
 TEST_F(ParquetIntegrationTest, SnapshotReturnsNulloptForUnknownAsset) {
     auto settings = make_settings(1000);
-    ParquetOrderBookRepository repo(settings);
+    ParquetOrderBookRepository repo(fs_, settings);
 
     MarketAsset unknown("0x000", "999");
     auto loaded = repo.get_latest_snapshot(unknown);
@@ -187,7 +181,7 @@ TEST_F(ParquetIntegrationTest, SnapshotReturnsNulloptForUnknownAsset) {
 
 TEST_F(ParquetIntegrationTest, BookSnapshotEventDataPreserved) {
     auto settings = make_settings(1);
-    ParquetOrderBookRepository repo(settings);
+    ParquetOrderBookRepository repo(fs_, settings);
 
     auto snap = make_snapshot(1);
     repo.append_event(snap);
@@ -205,7 +199,7 @@ TEST_F(ParquetIntegrationTest, BookSnapshotEventDataPreserved) {
 
 TEST_F(ParquetIntegrationTest, TradeEventDataPreserved) {
     auto settings = make_settings(1);
-    ParquetOrderBookRepository repo(settings);
+    ParquetOrderBookRepository repo(fs_, settings);
 
     auto trade = make_trade(1);
     repo.append_event(trade);
@@ -222,7 +216,7 @@ TEST_F(ParquetIntegrationTest, TradeEventDataPreserved) {
 
 TEST_F(ParquetIntegrationTest, BookDeltaEventDataPreserved) {
     auto settings = make_settings(1);
-    ParquetOrderBookRepository repo(settings);
+    ParquetOrderBookRepository repo(fs_, settings);
 
     auto delta = make_delta(1);
     repo.append_event(delta);

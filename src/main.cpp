@@ -123,7 +123,10 @@ int main(int argc, char* argv[]) {
     std::unique_ptr<mde::repositories::IOrderBookRepository> repo;
     if (settings.storage.backend == "parquet") {
 #ifdef MDE_HAS_PARQUET
-        repo = std::make_unique<mde::repositories::pq::ParquetOrderBookRepository>(settings.storage);
+        auto fs = mde::repositories::pq::ParquetOrderBookRepository::make_local_fs(
+            settings.storage.data_directory);
+        repo = std::make_unique<mde::repositories::pq::ParquetOrderBookRepository>(
+            fs, settings.storage);
 #else
         std::cerr << "Parquet backend requested but not compiled in. "
                   << "Rebuild with Apache Arrow installed." << std::endl;

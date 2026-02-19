@@ -2,17 +2,15 @@
 #include "repositories/parquet/ParquetSchemas.hpp"
 
 #include <arrow/api.h>
-#include <arrow/io/file.h>
+#include <arrow/filesystem/api.h>
+#include <arrow/filesystem/localfs.h>
 #include <parquet/arrow/reader.h>
 #include <parquet/arrow/writer.h>
 
 #include <algorithm>
-#include <filesystem>
 #include <iomanip>
 #include <sstream>
 #include <variant>
-
-namespace fs = std::filesystem;
 
 using namespace mde::domain;
 
@@ -35,18 +33,55 @@ int64_t get_timestamp_ms(const OrderBookEventVariant& event) {
         [](const auto& e) { return e.timestamp.milliseconds(); }, event);
 }
 
+bool ends_with(const std::string& str, const std::string& suffix) {
+    if (suffix.size() > str.size()) return false;
+    return str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+// Extract the first path component (event type) from a relative path like
+// "book_snapshot/6581861/2025-07-15/file.parquet"
+std::string first_path_component(const std::string& path) {
+    auto pos = path.find('/');
+    if (pos == std::string::npos) return path;
+    return path.substr(0, pos);
+}
+
+// Extract parent directory from a path string
+std::string parent_path(const std::string& path) {
+    auto pos = path.rfind('/');
+    if (pos == std::string::npos) return "";
+    return path.substr(0, pos);
+}
+
+// Extract filename stem from a path string (no directory, no extension)
+std::string stem(const std::string& path) {
+    auto slash = path.rfind('/');
+    std::string filename = (slash == std::string::npos) ? path : path.substr(slash + 1);
+    auto dot = filename.rfind('.');
+    if (dot == std::string::npos) return filename;
+    return filename.substr(0, dot);
+}
+
 } // namespace
 
 ParquetOrderBookRepository::ParquetOrderBookRepository(
+    std::shared_ptr<arrow::fs::FileSystem> fs,
     const mde::config::StorageSettings& settings)
-    : settings_(settings)
+    : fs_(std::move(fs))
+    , settings_(settings)
     , last_flush_time_(std::chrono::steady_clock::now()) {
-    fs::create_directories(settings_.data_directory);
 }
 
 ParquetOrderBookRepository::~ParquetOrderBookRepository() {
     std::lock_guard lock(mutex_);
     flush();
+}
+
+std::shared_ptr<arrow::fs::FileSystem> ParquetOrderBookRepository::make_local_fs(
+    const std::string& root_dir) {
+    auto local = std::make_shared<arrow::fs::LocalFileSystem>();
+    (void)local->CreateDir(root_dir, /*recursive=*/true);
+    return std::make_shared<arrow::fs::SubTreeFileSystem>(root_dir, local);
 }
 
 void ParquetOrderBookRepository::append_event(const OrderBookEventVariant& event) {
@@ -119,10 +154,9 @@ void ParquetOrderBookRepository::flush_buffer(
     uint64_t seq_start = get_seq(events.front());
     uint64_t seq_end = get_seq(events.back());
 
-    std::string dir = settings_.data_directory + "/events/" + event_type + "/"
-        + token_prefix(first_asset.token_id()) + "/"
+    std::string dir = events_dir(event_type, first_asset.token_id()) + "/"
         + date_string(first_ts);
-    fs::create_directories(dir);
+    (void)fs_->CreateDir(dir, /*recursive=*/true);
 
     std::string filename = event_type + "_" + hour_string(first_ts) + "_"
         + std::to_string(seq_start) + "_" + std::to_string(seq_end) + ".parquet";
@@ -199,8 +233,9 @@ void ParquetOrderBookRepository::write_book_snapshots(
     auto table = arrow::Table::Make(schema,
         {arr_cid, arr_tid, arr_ts, arr_seq, arr_hash, arr_bp, arr_bs, arr_ap, arr_as});
 
-    auto outfile = arrow::io::FileOutputStream::Open(path).ValueOrDie();
+    auto outfile = fs_->OpenOutputStream(path).ValueOrDie();
     (void)::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), outfile, events.size());
+    (void)outfile->Close();
 }
 
 void ParquetOrderBookRepository::write_book_deltas(
@@ -266,8 +301,9 @@ void ParquetOrderBookRepository::write_book_deltas(
     auto table = arrow::Table::Make(schema,
         {arr_cid, arr_tid, arr_ts, arr_seq, arr_aids, arr_prices, arr_sizes, arr_sides, arr_bbids, arr_basks});
 
-    auto outfile = arrow::io::FileOutputStream::Open(path).ValueOrDie();
+    auto outfile = fs_->OpenOutputStream(path).ValueOrDie();
     (void)::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), outfile, events.size());
+    (void)outfile->Close();
 }
 
 void ParquetOrderBookRepository::write_trade_events(
@@ -308,8 +344,9 @@ void ParquetOrderBookRepository::write_trade_events(
     auto table = arrow::Table::Make(schema,
         {arr_cid, arr_tid, arr_ts, arr_seq, arr_price, arr_size, arr_side, arr_fee});
 
-    auto outfile = arrow::io::FileOutputStream::Open(path).ValueOrDie();
+    auto outfile = fs_->OpenOutputStream(path).ValueOrDie();
     (void)::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), outfile, events.size());
+    (void)outfile->Close();
 }
 
 void ParquetOrderBookRepository::write_tick_size_changes(
@@ -345,8 +382,9 @@ void ParquetOrderBookRepository::write_tick_size_changes(
     auto table = arrow::Table::Make(schema,
         {arr_cid, arr_tid, arr_ts, arr_seq, arr_old, arr_new});
 
-    auto outfile = arrow::io::FileOutputStream::Open(path).ValueOrDie();
+    auto outfile = fs_->OpenOutputStream(path).ValueOrDie();
     (void)::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), outfile, events.size());
+    (void)outfile->Close();
 }
 
 // --- Read path ---
@@ -357,11 +395,10 @@ std::vector<OrderBookEventVariant> ParquetOrderBookRepository::get_events_since(
 
     std::vector<OrderBookEventVariant> result;
 
-    // Read from disk for each event type
+    // Read from storage for each event type
     const std::string event_types[] = {"book_snapshot", "book_delta", "trade_event", "tick_size_change"};
     for (const auto& event_type : event_types) {
-        std::string dir = settings_.data_directory + "/events/" + event_type + "/"
-            + token_prefix(asset.token_id());
+        std::string dir = events_dir(event_type, asset.token_id());
         auto disk_events = read_events_from_directory(dir, asset, sequence_number);
         result.insert(result.end(), disk_events.begin(), disk_events.end());
     }
@@ -392,17 +429,20 @@ std::vector<OrderBookEventVariant> ParquetOrderBookRepository::read_events_from_
 
     std::vector<OrderBookEventVariant> result;
 
-    if (!fs::exists(dir)) return result;
+    arrow::fs::FileSelector selector;
+    selector.base_dir = dir;
+    selector.allow_not_found = true;
+    selector.recursive = true;
+    auto listing_result = fs_->GetFileInfo(selector);
+    if (!listing_result.ok()) return result;
+    auto listing = listing_result.ValueOrDie();
 
-    // Determine which event type directory this is
-    // The dir path ends with token_prefix — the event type is two levels up
-    fs::path dir_path(dir);
-
-    for (auto& entry : fs::recursive_directory_iterator(dir)) {
-        if (!entry.is_regular_file() || entry.path().extension() != ".parquet") continue;
+    for (const auto& file_info : listing) {
+        if (file_info.type() != arrow::fs::FileType::File) continue;
+        if (!ends_with(file_info.path(), ".parquet")) continue;
 
         // Try to extract seq range from filename to skip files entirely
-        std::string filename = entry.path().stem().string();
+        std::string filename = stem(file_info.path());
         // Format: {event_type}_{HH}_{seq_start}_{seq_end}
         // Quick check: if seq_end < min_sequence, skip this file
         auto last_underscore = filename.rfind('_');
@@ -417,7 +457,7 @@ std::vector<OrderBookEventVariant> ParquetOrderBookRepository::read_events_from_
         }
 
         // Read the parquet file
-        auto infile = arrow::io::ReadableFile::Open(entry.path().string()).ValueOrDie();
+        auto infile = fs_->OpenInputFile(file_info.path()).ValueOrDie();
         std::unique_ptr<::parquet::arrow::FileReader> reader;
         auto reader_result = ::parquet::arrow::FileReader::Make(arrow::default_memory_pool(), ::parquet::ParquetFileReader::Open(infile));
         if (!reader_result.ok()) continue;
@@ -427,13 +467,16 @@ std::vector<OrderBookEventVariant> ParquetOrderBookRepository::read_events_from_
         auto read_status = reader->ReadTable(&table);
         if (!read_status.ok()) continue;
 
-        // Determine event type from parent directory name
-        // dir is: data_dir/events/{event_type}/{token_prefix}
-        // entry could be deeper: .../YYYY-MM-DD/file.parquet
+        // Determine event type from the path relative to "events/"
+        // file_info.path() within SubTreeFileSystem is like:
+        //   "events/book_snapshot/6581861/2025-07-15/file.parquet"
+        // We want the component after "events/"
         std::string event_type;
-        fs::path rel = fs::relative(entry.path(), settings_.data_directory + "/events");
-        if (!rel.empty()) {
-            event_type = rel.begin()->string();
+        const std::string events_prefix = "events/";
+        auto events_pos = file_info.path().find(events_prefix);
+        if (events_pos != std::string::npos) {
+            std::string after_events = file_info.path().substr(events_pos + events_prefix.size());
+            event_type = first_path_component(after_events);
         }
 
         auto cid_col = std::static_pointer_cast<arrow::StringArray>(
@@ -651,10 +694,14 @@ void ParquetOrderBookRepository::store_snapshot(const OrderBook& book) {
          arr_tp, arr_tsz, arr_ts2, arr_fee, arr_tts, arr_ht});
 
     std::string path = snapshot_path(book.get_asset().token_id());
-    fs::create_directories(fs::path(path).parent_path());
+    std::string parent = parent_path(path);
+    if (!parent.empty()) {
+        (void)fs_->CreateDir(parent, /*recursive=*/true);
+    }
 
-    auto outfile = arrow::io::FileOutputStream::Open(path).ValueOrDie();
+    auto outfile = fs_->OpenOutputStream(path).ValueOrDie();
     (void)::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), outfile, 1);
+    (void)outfile->Close();
 }
 
 std::optional<OrderBook> ParquetOrderBookRepository::get_latest_snapshot(
@@ -662,9 +709,12 @@ std::optional<OrderBook> ParquetOrderBookRepository::get_latest_snapshot(
     std::lock_guard lock(mutex_);
 
     std::string path = snapshot_path(asset.token_id());
-    if (!fs::exists(path)) return std::nullopt;
+    auto file_info = fs_->GetFileInfo(path);
+    if (!file_info.ok() || file_info->type() == arrow::fs::FileType::NotFound) {
+        return std::nullopt;
+    }
 
-    auto infile = arrow::io::ReadableFile::Open(path).ValueOrDie();
+    auto infile = fs_->OpenInputFile(path).ValueOrDie();
     std::unique_ptr<::parquet::arrow::FileReader> reader;
     auto reader_result = ::parquet::arrow::FileReader::Make(arrow::default_memory_pool(), ::parquet::ParquetFileReader::Open(infile));
     if (!reader_result.ok()) return std::nullopt;
@@ -756,11 +806,11 @@ std::optional<OrderBook> ParquetOrderBookRepository::get_latest_snapshot(
 
 std::string ParquetOrderBookRepository::events_dir(
     const std::string& event_type, const std::string& token_id) const {
-    return settings_.data_directory + "/events/" + event_type + "/" + token_prefix(token_id);
+    return "events/" + event_type + "/" + token_prefix(token_id);
 }
 
 std::string ParquetOrderBookRepository::snapshot_path(const std::string& token_id) const {
-    return settings_.data_directory + "/snapshots/" + token_hash(token_id) + ".parquet";
+    return "snapshots/" + token_hash(token_id) + ".parquet";
 }
 
 std::string ParquetOrderBookRepository::token_prefix(const std::string& token_id) {
