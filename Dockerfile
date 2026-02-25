@@ -46,7 +46,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     apt-get install -y /tmp/apache-arrow-apt-source.deb && \
     rm /tmp/apache-arrow-apt-source.deb && \
     apt-get update && apt-get install -y --no-install-recommends \
-    libarrow1700 libparquet1700 \
+    libarrow2300 libparquet2300 \
     libssl3 libcurl4 && \
     apt-get purge -y lsb-release wget gnupg && \
     apt-get autoremove -y && \
